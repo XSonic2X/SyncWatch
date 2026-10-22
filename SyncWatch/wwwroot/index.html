@@ -1,0 +1,1110 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SyncWatch — просмотр</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #0e0f13;
+            color: #e8e8ec;
+            font: 14px/1.4 system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 14px;
+            background: #16181f;
+            border-bottom: 1px solid #262a35;
+        }
+
+            header b {
+                color: #7ab7ff;
+            }
+
+        #hostState {
+            color: #c9a86a;
+        }
+
+        #status {
+            color: #9aa3b5;
+            flex: 1;
+        }
+
+        header a {
+            color: #9aa3b5;
+            text-decoration: none;
+        }
+
+        #playerContainer {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            background: #000;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        #stage {
+            flex: 1;
+            position: relative;
+            background: #000;
+            min-height: 0;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            cursor: pointer;
+        }
+
+        #bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: #16181f;
+            border-top: 1px solid #262a35;
+            z-index: 20;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        #playerContainer:fullscreen #bar,
+        #playerContainer:-webkit-full-screen #bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            border-top: none;
+        }
+
+        #playerContainer.hide-controls #bar {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(10px);
+        }
+
+        #playerContainer.hide-controls video {
+            cursor: none;
+        }
+
+        #bar button {
+            background: #25497e;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        #ppBtn {
+            width: 44px;
+        }
+
+        #tLabel {
+            font-variant-numeric: tabular-nums;
+            min-width: 170px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        #tl {
+            position: relative;
+            flex: 1;
+            height: 24px;
+            min-width: 120px;
+            display: flex;
+            align-items: center;
+        }
+
+        #tlTrack {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: #2a2f3c;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        #tlFill {
+            height: 100%;
+            width: 0%;
+            background: #3d7bd9;
+        }
+
+        #tlDrag {
+            position: absolute;
+            left: 0;
+            right: 0;
+            width: 100%;
+            height: 24px;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        #syncLabel {
+            color: #88c0d0;
+            font-size: 11px;
+            min-width: 140px;
+            text-align: right;
+        }
+
+        #vol {
+            width: 80px;
+        }
+
+        footer {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            background: #16181f;
+            border-top: 1px solid #262a35;
+        }
+
+        #sug {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+        }
+
+            #sug input {
+                flex: 1;
+                background: #0e0f13;
+                border: 1px solid #333a4a;
+                border-radius: 6px;
+                padding: 7px 10px;
+                color: #e8e8ec;
+            }
+    </style>
+</head>
+<body>
+    <header><b>SyncWatch</b><span id="status">Подключение...</span><span id="hostState"></span><a href="/logs" target="_blank">Логи</a></header>
+
+    <div id="playerContainer">
+        <div id="stage">
+            <video id="v" playsinline></video>
+        </div>
+
+        <div id="bar">
+            <button id="ppBtn">▶</button>
+            <span id="tLabel">--:--</span>
+            <div id="tl"><div id="tlTrack"><div id="tlFill"></div></div><input id="tlDrag" type="range" min="0" max="1000" value="0" step="1"></div>
+            <span id="syncLabel">Буфер: 0.0с</span>
+            <button id="muteBtn">🔊</button>
+            <input id="vol" type="range" min="0" max="100" value="100">
+            <button id="fsBtn">⛶</button>
+        </div>
+    </div>
+
+    <footer><form id="sug"><input id="sugUrl" placeholder="Предложить видео (ссылка)"><button type="submit">Предложить</button></form></footer>
+
+    <script src="/signalr.min.js"></script>
+    <script>
+        if (typeof signalR === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        "use strict";
+
+        const ROOM = 'main-room';
+        const container = document.getElementById('playerContainer');
+        const video = document.getElementById('v');
+        const bar = document.getElementById('bar');
+        const statusEl = document.getElementById('status');
+        const hostEl = document.getElementById('hostState');
+        const ppBtn = document.getElementById('ppBtn');
+        const tLabel = document.getElementById('tLabel');
+        const tlFill = document.getElementById('tlFill');
+        const tlDrag = document.getElementById('tlDrag');
+        const syncLabel = document.getElementById('syncLabel');
+        const muteBtn = document.getElementById('muteBtn');
+        const vol = document.getElementById('vol');
+
+        let suppressUntil = 0, scrubbing = false, scrubReleaseTimer = null;
+        let hostCur = 0, hostDur = 0, hostPaused = false, hostMetaAt = 0;
+        let currentEffectiveTime = 0;
+        let conn = null;
+        let isConnecting = false;
+        let hideControlsTimeout = null;
+        let userWantsAudio = false;
+        let bufferWatch = false;
+        let ignoreControlUntil = 0;
+        let startGen = 0;
+        let lastReconnectAt = 0;
+        let lastPlayhead = 0;
+        let lastPlayheadAt = 0;
+        let liveRetries = 0;
+        const SHOW_AT = 7;
+        const BUFFER_SLOW_SEC = 4;
+        const BUFFER_HOLD_SEC = 6;
+        const BUFFER_FAST_SEC = 10;
+        const PACE_SLOW = 0.5;
+        const PACE_HOLD = 0.9;
+        const PACE_NORMAL = 1;
+        const PACE_FAST = 1.1;
+        const PACE_EPSILON = 0.02;
+        const STREAM_RETRY_MS = 400;
+        const LIVE_RETRY_LIMIT = 2;
+        const FRESH_START_MS = 0;
+        const JOIN_LIVE_MS = 400;
+        const CONNECTING_MS = 2000;
+        const RECONNECT_MS = 2000;
+        const LIVE_OPEN_MS = 300;
+        let roomRate = PACE_HOLD;
+        let armFresh = false;
+        let holdUntilBuffered = true;
+        let liveOpenedAt = 0;
+        let directMode = false;
+        let roomEpoch = 0;
+        let hostEnded = false;
+        let drainAtNormal = false;
+        let awaitLive = false;
+        let fileReady = false;
+        let readyWake = null;
+
+        function wakeReadyPoll() {
+            const wake = readyWake;
+            readyWake = null;
+            if (wake) wake();
+        }
+
+        let replayAt = 0;
+        const END_EDGE_SEC = 0.5;
+
+        function liveSrcOpen() {
+            const src = video.getAttribute('src') || '';
+            return src.indexOf('/api/live') >= 0 && !video.error;
+        }
+
+        function sec(n) {
+            const x = Number(n);
+            return isFinite(x) ? x.toFixed(1).replace('.', ',') : 'нет';
+        }
+
+        function relayNote(text) {
+            fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text }).catch(() => { });
+        }
+
+        let clientStartLogged = false;
+        let suppressShow = false;
+
+        function bufferTail() {
+            const b = video.buffered;
+            return b && b.length ? b.end(b.length - 1) : 0;
+        }
+
+        function noteClientStart() {
+            if (clientStartLogged || directMode) return;
+            clientStartLogged = true;
+            relayNote('клиент начал, элемент ' + sec(video.currentTime) + ' с, хост ' + sec(hostCur) + ' с, буфер ' + sec(localMargin()) + ' с');
+        }
+
+        function noteClientEnd() {
+            if (directMode) return;
+            relayNote('клиент кончил, элемент ' + sec(video.currentTime) + ' с, хост ' + sec(hostCur) + ' с, буфер до ' + sec(bufferTail()) + ' с');
+        }
+
+        function setStatus(t) { statusEl.textContent = t; }
+        function setHost(t) { hostEl.textContent = t; }
+        function fmt(s) { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = String(s % 60).padStart(2, '0'); return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + ss; }
+
+        function startDirect(url, pageUrl, time, paused) {
+            suppressShow = false;
+            directMode = true;
+            startGen++;
+            holdUntilBuffered = false;
+            bufferWatch = false;
+            isConnecting = false;
+            armFresh = false;
+            video.playbackRate = 1;
+            video.muted = !userWantsAudio;
+            const src = '/proxy?url=' + encodeURIComponent(url) + '&ref=' + encodeURIComponent(pageUrl || '');
+            setStatus('Трансляция через сервер');
+            syncLabel.textContent = 'Видео через сервер';
+            const apply = () => {
+                if (!directMode) return;
+                video.style.opacity = '';
+                video.style.visibility = '';
+                if (time >= 0 && Math.abs((video.currentTime || 0) - time) > 1) {
+                    try { video.currentTime = time; } catch (e) { }
+                }
+                video.play().catch(() => { });
+            };
+            if (video.getAttribute('src') !== src) {
+                video.style.opacity = '';
+                video.style.visibility = '';
+                try { video.pause(); } catch (e) { }
+                video.removeAttribute('src');
+                video.load();
+                video.preload = 'auto';
+                video.src = src;
+                video.addEventListener('loadeddata', apply, { once: true });
+            } else apply();
+        }
+
+        function concealLive() {
+            video.style.opacity = '0';
+        }
+
+        function showLivePicture() {
+            video.style.opacity = '';
+            video.style.visibility = '';
+        }
+
+        function startLiveStream(delayMs, force, replace) {
+            if (directMode && !force) return;
+            directMode = false;
+            if (!replace && isConnecting) return;
+            if (!replace && liveSrcOpen()) return;
+            isConnecting = true;
+            clientStartLogged = false;
+            liveOpenedAt = Date.now();
+            bufferWatch = false;
+            holdUntilBuffered = true;
+            drainAtNormal = false;
+            awaitLive = false;
+            roomRate = PACE_HOLD;
+            if (!liveSrcOpen()) concealLive();
+            const gen = ++startGen;
+            setStatus(delayMs > 0 ? 'Накопление буфера...' : 'Подключение к трансляции...');
+            syncLabel.textContent = 'Буфер: 0.0с (' + roomRate + 'x)';
+
+            const open = async () => {
+                if (gen !== startGen) return;
+                let pause = 400;
+                while (gen === startGen && !directMode) {
+                    let ready = false;
+                    try {
+                        const r = await fetch('/api/live/ready', { cache: 'no-store' });
+                        if (gen !== startGen || directMode) return;
+                        if (!r.ok) break;
+                        const j = await r.json();
+                        ready = !!(j && j.ready);
+                    } catch (e) { }
+                    if (gen !== startGen || directMode) return;
+                    if (ready) {
+                        fileReady = true;
+                        break;
+                    }
+                    await new Promise(res => {
+                        const timer = setTimeout(res, fileReady ? 40 : pause);
+                        readyWake = () => { clearTimeout(timer); res(); };
+                    });
+                    readyWake = null;
+                    pause = 1500;
+                }
+                if (gen !== startGen || directMode) return;
+                try {
+                    video.pause();
+                    video.removeAttribute('src');
+                    video.load();
+                } catch (e) { }
+                video.preload = 'auto';
+                video.playbackRate = 1;
+                video.muted = true;
+                concealLive();
+                suppressShow = false;
+                video.src = '/api/live?t=' + gen + '_' + Date.now();
+                const pending = video.play();
+                if (pending && typeof pending.catch === 'function') {
+                    pending.catch(() => {
+                        if (gen !== startGen) return;
+                        video.play().catch(() => { });
+                    });
+                }
+                setTimeout(() => { if (gen === startGen) isConnecting = false; }, CONNECTING_MS);
+            };
+
+            if (delayMs > 0) setTimeout(open, delayMs);
+            else open();
+        }
+
+        function onStreamDied() {
+            if (awaitLive || hostEnded) return;
+            if (directMode) {
+                const src = video.getAttribute('src') || '';
+                if (src.indexOf('/proxy') < 0) return;
+                if (video.error && video.error.code === 1) return;
+                setStatus('Не удалось открыть видео через сервер');
+                return;
+            }
+            const gen = startGen;
+            const src = video.currentSrc || '';
+            if (src.indexOf('/api/live') < 0 || liveRetries >= LIVE_RETRY_LIMIT) return;
+            setTimeout(() => {
+                if (gen !== startGen) return;
+                if (video.error && video.error.code === 1) return;
+                if (!video.error && !video.ended) return;
+                liveRetries++;
+                isConnecting = false;
+                startLiveStream();
+            }, STREAM_RETRY_MS);
+        }
+
+        video.addEventListener('waiting', () => {
+            if (directMode || holdUntilBuffered || hostPaused || !liveSrcOpen() || video.ended) return;
+            video.play().catch(() => { });
+        });
+        video.addEventListener('error', onStreamDied);
+        video.addEventListener('ended', () => {
+            if (directMode) return;
+            const src = video.currentSrc || video.getAttribute('src') || '';
+            if (src.indexOf('/api/live') < 0) return;
+            if (hostEnded || playingTail()) {
+                noteClientEnd();
+                return;
+            }
+            onStreamDied();
+        });
+
+        function paceFor(lead) {
+            if (lead < BUFFER_SLOW_SEC) return PACE_SLOW;
+            if (lead < BUFFER_HOLD_SEC) return PACE_HOLD;
+            if (lead > BUFFER_FAST_SEC) return PACE_FAST;
+            return PACE_NORMAL;
+        }
+
+        function acceptPace(rate) {
+            const n = Number(rate);
+            if (Math.abs(n - PACE_SLOW) < PACE_EPSILON) return PACE_SLOW;
+            if (Math.abs(n - PACE_HOLD) < PACE_EPSILON) return PACE_HOLD;
+            if (Math.abs(n - PACE_NORMAL) < PACE_EPSILON) return PACE_NORMAL;
+            if (Math.abs(n - PACE_FAST) < PACE_EPSILON) return PACE_FAST;
+            return 0;
+        }
+
+        function applyRoomPace() {
+            if (drainAtNormal) roomRate = PACE_NORMAL;
+            if (directMode || hostPaused || video.paused) return;
+            if (Math.abs((video.playbackRate || PACE_NORMAL) - roomRate) < PACE_EPSILON) return;
+            video.playbackRate = roomRate;
+        }
+
+        function bufferEnoughToShow() {
+            const lead = localMargin();
+            if (lead >= SHOW_AT) return true;
+            if (!(hostDur > 1) || hostCur < 1) return false;
+            const rest = hostDur - hostCur;
+            return lead >= 0.8 && rest <= Math.max(lead + 0.4, 1.2);
+        }
+
+        function revealPlayback() {
+            if (suppressShow || !holdUntilBuffered) return;
+            const lead = localMargin();
+            if (!bufferEnoughToShow()) return;
+            if (hostPaused) {
+                showLivePicture();
+                video.muted = !userWantsAudio;
+                return;
+            }
+            holdUntilBuffered = false;
+            roomRate = paceFor(lead);
+            applyRoomPace();
+            video.muted = !userWantsAudio;
+            showLivePicture();
+            bufferWatch = true;
+            noteClientStart();
+            isConnecting = false;
+            setStatus('Трансляция активна');
+            ppBtn.textContent = '⏸';
+            video.play().catch(() => { });
+        }
+
+        video.addEventListener('playing', () => {
+            if (directMode) {
+                video.playbackRate = 1;
+                video.style.opacity = '';
+                video.style.visibility = '';
+                video.muted = !userWantsAudio;
+                isConnecting = false;
+                setStatus('Трансляция через сервер');
+                ppBtn.textContent = hostPaused ? '▶' : '⏸';
+                return;
+            }
+            if (holdUntilBuffered) {
+                const lead = localMargin();
+                if (bufferEnoughToShow()) {
+                    revealPlayback();
+                    return;
+                }
+                concealLive();
+                if (lead >= 0.5) {
+                    try { video.pause(); } catch (e) { }
+                }
+                setStatus('Накопление буфера...');
+                return;
+            }
+            isConnecting = false;
+            bufferWatch = true;
+            applyRoomPace();
+            liveRetries = 0;
+            lastPlayhead = video.currentTime;
+            lastPlayheadAt = Date.now();
+            setStatus('Трансляция активна');
+            ppBtn.textContent = hostPaused ? '▶' : '⏸';
+        });
+
+        function showControls() {
+            container.classList.remove('hide-controls');
+            clearTimeout(hideControlsTimeout);
+            if (!hostPaused && !scrubbing) {
+                hideControlsTimeout = setTimeout(() => {
+                    container.classList.add('hide-controls');
+                }, 2500);
+            }
+        }
+        container.addEventListener('mousemove', showControls);
+        container.addEventListener('mousedown', showControls);
+
+        video.addEventListener('click', () => {
+            if (video.muted) {
+                video.muted = false;
+                userWantsAudio = true;
+                video.volume = 1.0;
+                vol.value = 100;
+                updMute();
+            }
+            if (hostPaused) {
+                sendCtrl('play', currentEffectiveTime > 0 ? currentEffectiveTime : hostCur);
+            } else {
+                try { video.pause(); } catch (e) { }
+                sendCtrl('pause', currentEffectiveTime > 0 ? currentEffectiveTime : hostCur);
+            }
+        });
+
+        const MAX_LAG = 12.0;
+
+        function bufferInfo() {
+            const b = video.buffered, t = video.currentTime || 0;
+            if (!b || b.length === 0) return null;
+            let end = -1;
+            for (let i = 0; i < b.length; i++) {
+                if (t >= b.start(i) - 0.3 && t <= b.end(i) + 0.8)
+                    end = Math.max(end, b.end(i));
+            }
+            if (end < 0) return { lastEnd: b.end(b.length - 1), inRange: false };
+            return { lastEnd: end, inRange: true };
+        }
+
+        function localMargin() {
+            const info = bufferInfo();
+            if (!info || !info.inRange) return 0;
+            return Math.max(0, info.lastEnd - (video.currentTime || 0));
+        }
+
+        function atMediaEnd() {
+            if (video.ended) return true;
+            const d = video.duration;
+            const t = video.currentTime || 0;
+            return isFinite(d) && d > 1 && t >= d - 0.25;
+        }
+
+        function hostNearEnd(cur) {
+            const t = typeof cur === 'number' ? cur : hostCur;
+            return hostEnded || (hostDur > 1 && t >= hostDur - END_EDGE_SEC);
+        }
+
+        function playingTail(cur) {
+            if (directMode) return false;
+            if (hostEnded) return true;
+            const t = typeof cur === 'number' ? cur : hostCur;
+            if (!(hostDur > 1) || t < 1) return false;
+            const rest = hostDur - t;
+            if (rest <= 8) return true;
+            const lead = localMargin();
+            return lead >= 0.4 && rest <= lead + 1.5;
+        }
+
+        function noteTail(cur) {
+            if (directMode || !(hostDur > 1)) return;
+            const t = typeof cur === 'number' ? cur : hostCur;
+            if (t < 1) return;
+            const rest = hostDur - t;
+            if (hostEnded || rest <= 8) {
+                drainAtNormal = true;
+                return;
+            }
+            if (hostPaused) return;
+            const lead = localMargin();
+            if (rest <= 8 && lead >= 0.4 && rest <= lead + 0.3) drainAtNormal = true;
+            else if (drainAtNormal && rest > END_EDGE_SEC && rest > lead + 0.5) drainAtNormal = false;
+        }
+
+        function showBufferFill() {
+            syncLabel.textContent = 'Буфер: ' + localMargin().toFixed(1) + 'с (' + roomRate + 'x)';
+        }
+
+        setInterval(() => {
+            if (directMode) return;
+            snapLiveGap();
+            noteTail();
+            if (!holdUntilBuffered && liveSrcOpen() && !atMediaEnd() && (hostEnded || !hostPaused)
+                && (video.paused || (playingTail() && video.readyState < 3))) {
+                if (hostEnded) video.playbackRate = 1;
+                video.play().catch(() => { });
+            }
+            if (drainAtNormal) applyRoomPace();
+            else if (holdUntilBuffered && liveSrcOpen() && !video.seeking) {
+                const lead = localMargin();
+                if (bufferEnoughToShow())
+                    revealPlayback();
+                else if (!hostPaused && lead >= 0.5 && !video.paused)
+                    try { video.pause(); } catch (e) { }
+                else if (!hostPaused && video.paused && lead < 0.05) {
+                    const b = video.buffered;
+                    if (!b || b.length === 0) video.play().catch(() => { });
+                }
+            }
+            else if (!hostPaused && !video.paused && !holdUntilBuffered) {
+                const lead = localMargin();
+                if (lead <= 0) return;
+                const next = paceFor(lead);
+                if (Math.abs(next - roomRate) > 0.01) {
+                    roomRate = next;
+                    applyRoomPace();
+                }
+            }
+        }, 200);
+
+        function snapLiveGap() {
+            if (!holdUntilBuffered || video.seeking) return;
+            const b = video.buffered;
+            if (!b || b.length === 0) return;
+            const start = b.start(0);
+            if (start > (video.currentTime || 0) + 0.5) {
+                try { video.currentTime = start; } catch (e) { }
+            }
+        }
+
+        video.addEventListener('timeupdate', () => {
+            if (!directMode || scrubbing) return;
+            currentEffectiveTime = video.currentTime || 0;
+        });
+
+        setInterval(() => {
+            try {
+                if (directMode) {
+                    if (!scrubbing) currentEffectiveTime = video.currentTime || hostCur;
+                    updateTimelineUi();
+                    return;
+                }
+                showBufferFill();
+                noteTail();
+                if (holdUntilBuffered) return;
+                if (!bufferWatch || isConnecting || video.seeking || video.paused) return;
+                const info = bufferInfo();
+                if (!info) return;
+
+                const bufferMargin = Math.max(0, info.lastEnd - video.currentTime);
+                if (video.currentTime > lastPlayhead + 0.2) {
+                    lastPlayhead = video.currentTime;
+                    lastPlayheadAt = Date.now();
+                }
+
+                if (hostPaused) {
+                    if (hostCur > 0) currentEffectiveTime = hostCur;
+                } else if (info.inRange && bufferMargin <= MAX_LAG) {
+                    currentEffectiveTime = Math.max(0, hostCur - bufferMargin);
+                }
+
+                updateTimelineUi();
+
+                if (drainAtNormal) {
+                    roomRate = PACE_NORMAL;
+                    applyRoomPace();
+                } else if (info.inRange && bufferMargin <= MAX_LAG && conn && conn.state === signalR.HubConnectionState.Connected) {
+                    conn.invoke("ReportBufferMargin", ROOM, bufferMargin, currentEffectiveTime).catch(() => { });
+                }
+            } catch (e) { }
+        }, 1000);
+
+        function sendCtrl(action, time) {
+            if (action === 'pause' || action === 'play') suppressUntil = Date.now() + 900;
+            if (conn && conn.state === signalR.HubConnectionState.Connected) {
+                conn.invoke('SendControl', ROOM, action, time).catch(() => { });
+            }
+        }
+
+        async function initSignalR() {
+            if (typeof signalR === 'undefined') {
+                setTimeout(initSignalR, 300);
+                return;
+            }
+
+            conn = new signalR.HubConnectionBuilder()
+                .withUrl('/roomHub')
+                .withAutomaticReconnect()
+                .configureLogging(signalR.LogLevel.Warning)
+                .build();
+
+            conn.on('SyncRoomPace', (targetRate) => {
+                if (directMode) {
+                    video.playbackRate = 1;
+                    return;
+                }
+                if (drainAtNormal) {
+                    roomRate = PACE_NORMAL;
+                    applyRoomPace();
+                    showBufferFill();
+                    return;
+                }
+                if (localMargin() <= 0) {
+                    const rate = acceptPace(targetRate);
+                    if (rate) roomRate = rate;
+                }
+                applyRoomPace();
+                showBufferFill();
+            });
+
+            conn.on('ReceiveControl', (action, time) => {
+                if (Date.now() < ignoreControlUntil && action !== "play" && action !== "ended" && action !== "live" && action !== "renew") return;
+                suppressUntil = Date.now() + 900;
+
+                if (action === "ended") {
+                    hostEnded = true;
+                    drainAtNormal = true;
+                    fileReady = false;
+                    hostPaused = false;
+                    armFresh = false;
+                    if (time >= 0) {
+                        hostCur = time;
+                        if (!(hostDur > time)) hostDur = time;
+                    }
+                    setHost('хост: конец');
+                    ppBtn.textContent = '⏸';
+                    if (!directMode)
+                        relayNote('клиент на конце хоста, элемент ' + sec(video.currentTime) + ' с, хост ' + sec(hostCur) + ' с, буфер до ' + sec(bufferTail()) + ' с');
+                    if (!directMode && video.paused && !atMediaEnd() && bufferWatch && !holdUntilBuffered)
+                        video.play().catch(() => { });
+                    applyRoomPace();
+                    updateTimelineUi();
+                    return;
+                }
+                if (action === "live") {
+                    fileReady = true;
+                    wakeReadyPoll();
+                    if (directMode) return;
+                    awaitLive = false;
+                    hostEnded = false;
+                    if (isConnecting || (liveSrcOpen() && !video.ended)) return;
+                    setTimeout(() => {
+                        if (directMode || awaitLive || isConnecting) return;
+                        if (liveSrcOpen() && !video.ended) return;
+                        armFresh = false;
+                        liveRetries = 0;
+                        startLiveStream(0, true);
+                    }, LIVE_OPEN_MS);
+                    return;
+                }
+                if (action === "renew") {
+                    if (directMode) return;
+                    fileReady = false;
+                    hostEnded = false;
+                    drainAtNormal = false;
+                    awaitLive = true;
+                    armFresh = false;
+                    holdUntilBuffered = true;
+                    concealLive();
+                    setStatus("Новое видео...");
+                    try {
+                        video.pause();
+                        video.removeAttribute("src");
+                        video.load();
+                    } catch (e) { }
+                    setTimeout(() => {
+                        awaitLive = false;
+                        if (directMode) return;
+                        liveRetries = 0;
+                        startLiveStream(0, true, true);
+                    }, 200);
+                    return;
+                }
+                if (action === "pause") {
+                    if (!directMode && playingTail()) {
+                        hostEnded = true;
+                        drainAtNormal = true;
+                        hostPaused = false;
+                        armFresh = false;
+                        setHost('хост: конец');
+                        ppBtn.textContent = '⏸';
+                        if (video.paused && !atMediaEnd() && bufferWatch && !holdUntilBuffered)
+                            video.play().catch(() => { });
+                        applyRoomPace();
+                        updateTimelineUi();
+                        return;
+                    }
+                    hostEnded = false;
+                    hostPaused = true;
+                    if (!directMode) armFresh = true;
+                    ppBtn.textContent = '▶';
+                    try { video.pause(); } catch (e) { }
+                    if (time >= 0) {
+                        hostCur = time;
+                        currentEffectiveTime = time;
+                        if (directMode) { try { video.currentTime = time; } catch (e) { } }
+                        updateTimelineUi();
+                    }
+                } else if (action === "play") {
+                    replayAt = Date.now();
+                    const wasEnded = hostEnded || video.ended;
+                    hostEnded = false;
+                    awaitLive = false;
+                    drainAtNormal = false;
+                    hostPaused = false;
+                    ppBtn.textContent = '⏸';
+                    if (time >= 0) {
+                        hostCur = time;
+                        currentEffectiveTime = time;
+                    }
+                    if (directMode) {
+                        armFresh = false;
+                        video.playbackRate = 1;
+                        if (time >= 0 && Math.abs((video.currentTime || 0) - time) > 1.2) {
+                            try { video.currentTime = time; } catch (e) { }
+                        }
+                        video.play().catch(() => { });
+                        return;
+                    }
+                    const restart = wasEnded || armFresh || !liveSrcOpen() || video.ended;
+                    armFresh = false;
+                    if (restart) {
+                        liveRetries = 0;
+                        startLiveStream(FRESH_START_MS, true, true);
+                    } else if (video.paused) {
+                        video.play().catch(() => { });
+                    }
+                } else if (action === "seek") {
+                    replayAt = Date.now();
+                    hostEnded = false;
+                    drainAtNormal = false;
+                    if (time >= 0) {
+                        hostCur = time;
+                        currentEffectiveTime = time;
+                        if (directMode) { try { video.currentTime = time; } catch (e) { } }
+                        updateTimelineUi();
+                    }
+                    if (video.ended) {
+                        armFresh = true;
+                    }
+                }
+            });
+
+            conn.on('ReceiveMetadata', (cur, dur, paused) => {
+                if (Date.now() < ignoreControlUntil) return;
+                hostCur = cur;
+                hostDur = isFinite(dur) && dur > 0 ? dur : hostDur;
+                hostMetaAt = Date.now();
+                const restarting = Date.now() - replayAt < 2500;
+                if (!restarting) noteTail(cur);
+                if (drainAtNormal) applyRoomPace();
+                const atEnd = !restarting && paused && playingTail(cur);
+                if (!directMode && atEnd) {
+                    hostEnded = true;
+                    hostPaused = false;
+                    armFresh = false;
+                    setHost('хост: конец');
+                    ppBtn.textContent = '⏸';
+                    if (video.paused && !atMediaEnd() && bufferWatch && !holdUntilBuffered)
+                        video.play().catch(() => { });
+                    updateTimelineUi();
+                    return;
+                }
+                hostPaused = paused;
+                setHost(paused ? 'хост: пауза' : 'хост: играет');
+                ppBtn.textContent = paused ? '▶' : '⏸';
+                if (directMode) {
+                    if (paused && !video.paused) { try { video.pause(); } catch (e) { } }
+                    else if (!paused && video.paused && !scrubbing && Date.now() > suppressUntil)
+                        video.play().catch(() => { });
+                    if (!scrubbing && !video.seeking && video.readyState >= 2 && Date.now() > suppressUntil &&
+                        Math.abs((video.currentTime || 0) - cur) > 2)
+                        try { video.currentTime = cur; } catch (e) { }
+                    updateTimelineUi();
+                    return;
+                }
+                if (paused && !video.paused) {
+                    try { video.pause(); } catch (e) { }
+                    if (!holdUntilBuffered) armFresh = true;
+                } else if (!paused && armFresh && !holdUntilBuffered && Date.now() > suppressUntil) {
+                    armFresh = false;
+                    liveRetries = 0;
+                    startLiveStream(FRESH_START_MS, true, true);
+                } else if (!paused && video.paused && !atMediaEnd() && !scrubbing && Date.now() > suppressUntil && bufferWatch && !holdUntilBuffered) {
+                    video.playbackRate = roomRate;
+                    video.play().catch(() => { });
+                }
+                updateTimelineUi();
+            });
+
+            conn.on('ReceiveVideo', (url, pageUrl, time, paused, kind, epoch) => {
+                const n = Number(epoch) || 0;
+                if (n && n < roomEpoch) return;
+                const epochChanged = n > 0 && n !== roomEpoch;
+                if (n) roomEpoch = n;
+                ignoreControlUntil = Date.now() + 1000;
+                hostPaused = !!paused;
+                if (typeof time === 'number' && time >= 0) {
+                    hostCur = time;
+                    currentEffectiveTime = time;
+                }
+                const relay = !url || kind === 'relay';
+                if (!relay) {
+                    startDirect(url, pageUrl, typeof time === 'number' ? time : 0, !!paused);
+                    return;
+                }
+                const src = video.getAttribute('src') || '';
+                if (!epochChanged && !directMode && src.indexOf('/proxy') < 0 && (liveSrcOpen() || isConnecting)) {
+                    liveRetries = 0;
+                    return;
+                }
+                if (epochChanged) {
+                    fileReady = false;
+                    suppressShow = true;
+                    concealLive();
+                    try {
+                        video.pause();
+                        video.removeAttribute('src');
+                        video.load();
+                    } catch (e) { }
+                }
+                hostEnded = false;
+                awaitLive = false;
+                directMode = false;
+                isConnecting = false;
+                holdUntilBuffered = true;
+                concealLive();
+                startLiveStream(0, true, true);
+            });
+
+            try {
+                await conn.start();
+                await conn.invoke('JoinRoom', ROOM, 'viewer');
+                setStatus('Подключено к серверу, ожидание...');
+                setTimeout(() => { if (!directMode) startLiveStream(); }, JOIN_LIVE_MS);
+            } catch (err) {
+                setTimeout(initSignalR, RECONNECT_MS);
+            }
+        }
+
+        function updateTimelineUi() {
+            if (scrubbing) return;
+
+            const fileDur = directMode && isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+            const dur = hostDur > 0 ? hostDur : fileDur;
+            const displayTime = directMode
+                ? (video.currentTime || hostCur || 0)
+                : (currentEffectiveTime > 0 ? currentEffectiveTime : hostCur);
+            if (dur > 0) {
+                tLabel.textContent = `${fmt(displayTime)} (${fmt(hostCur)}) / ${fmt(dur)}`;
+                tlFill.style.width = (Math.min(1, Math.max(0, displayTime / dur)) * 100).toFixed(1) + '%';
+                tlDrag.value = Math.round(displayTime / dur * 1000);
+                tlDrag.disabled = false;
+            } else if (hostMetaAt || displayTime > 0) {
+                tLabel.textContent = fmt(displayTime);
+                tlDrag.disabled = true;
+                tlFill.style.width = '100%';
+            } else {
+                tLabel.textContent = '--:--';
+                tlDrag.disabled = true; tlFill.style.width = '100%';
+            }
+        }
+
+        function updMute() { muteBtn.textContent = (video.muted || video.volume === 0) ? '🔇' : '🔊'; }
+
+        muteBtn.addEventListener('click', () => {
+            video.muted = !video.muted;
+            userWantsAudio = !video.muted;
+            if (!video.muted && +vol.value === 0) { vol.value = 70; video.volume = 0.7; }
+            if (!video.muted && video.paused && !hostPaused) video.play().catch(() => { });
+            updMute();
+        });
+
+        vol.addEventListener('input', () => {
+            video.volume = vol.value / 100;
+            video.muted = vol.value === '0';
+            userWantsAudio = vol.value !== '0';
+            updMute();
+        });
+
+        document.getElementById('fsBtn').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(() => { });
+            } else {
+                document.exitFullscreen().catch(() => { });
+            }
+        });
+
+        ppBtn.addEventListener('click', () => {
+            if (hostPaused) {
+                sendCtrl('play', currentEffectiveTime > 0 ? currentEffectiveTime : hostCur);
+            } else {
+                try { video.pause(); } catch (e) { }
+                sendCtrl('pause', currentEffectiveTime > 0 ? currentEffectiveTime : hostCur);
+            }
+        });
+
+        tlDrag.addEventListener('input', () => {
+            scrubbing = true;
+            clearTimeout(scrubReleaseTimer);
+            if (hostDur > 0) {
+                const t = tlDrag.value / 1000 * hostDur;
+                tlFill.style.width = (t / hostDur * 100).toFixed(1) + '%';
+                tLabel.textContent = `${fmt(t)} (${fmt(hostCur)}) / ${fmt(hostDur)}`;
+            }
+        });
+
+        tlDrag.addEventListener('change', () => {
+            if (hostDur > 0) {
+                const t = Math.max(0, tlDrag.value / 1000 * hostDur);
+                hostCur = t;
+                currentEffectiveTime = t;
+                if (directMode) { try { video.currentTime = t; } catch (e) { } }
+                sendCtrl('seek', t);
+                setStatus('Перемотка: ' + fmt(t));
+            }
+            clearTimeout(scrubReleaseTimer);
+            scrubReleaseTimer = setTimeout(() => {
+                scrubbing = false;
+            }, 2000);
+        });
+
+        document.getElementById('sug').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = document.getElementById('sugUrl').value.trim();
+            if (!url) return;
+            try {
+                const r = await fetch('/api/suggestions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+                document.getElementById('sugUrl').value = '';
+                setStatus(r.ok ? 'Отправлено хосту' : 'Не удалось отправить');
+            } catch (err) { setStatus('Сервер недоступен'); }
+        });
+
+        initSignalR();
+    </script>
+</body>
+</html>

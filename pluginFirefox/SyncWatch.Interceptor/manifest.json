@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "SyncWatch Streamer",
+  "version": "3.0",
+  "permissions": ["<all_urls>", "activeTab", "tabs", "storage", "webRequest", "cookies"],
+  "background": { "scripts": ["background.js"] },
+  "browser_action": { "default_popup": "popup.html", "default_title": "SyncWatch" },
+  "commands": {
+    "capture-player": {
+      "suggested_key": { "default": "Alt+Shift+V", "mac": "Alt+Shift+V" },
+      "description": "Захватить плеер на активной вкладке"
+    }
+  }
+}

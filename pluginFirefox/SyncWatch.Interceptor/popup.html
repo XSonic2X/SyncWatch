@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 320px; font-family: sans-serif; padding: 12px; margin: 0; background: #1a1a1a; color: #fff; }
+  button.primary { width: 100%; padding: 10px; background: #0078d4; border: none; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; }
+  button.primary:hover { background: #005a9e; }
+  button.relay { width: 100%; padding: 10px; margin-top: 6px; background: #6b3fa0; border: none; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; }
+  button.relay:hover { background: #542f80; }
+  .hint { font-size: 11px; color: #888; text-align: center; margin-top: 6px; }
+  hr { border: 0; border-top: 1px solid #333; margin: 12px 0; }
+  h4 { margin: 0 0 8px 0; font-size: 13px; color: #ccc; }
+  #serverUrl, #directUrl, #capBitrate, #capFps, select.cfg { width: 100%; padding: 6px 8px; background: #252525; border: 1px solid #444; border-radius: 4px; color: #fff; font-size: 12px; box-sizing: border-box; }
+  label.cfg { display: block; font-size: 11px; color: #aaa; margin: 8px 0 4px; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ddd; margin-top: 8px; }
+  .check input { margin: 0; }
+  #foundUrl { font-size: 11px; color: #9ab; text-align: left; word-break: break-all; max-height: 48px; overflow: hidden; margin-bottom: 6px; }
+  #saveServer { margin-top: 6px; width: 100%; padding: 6px; background: #2d6a2d; border: none; color: white; border-radius: 4px; cursor: pointer; }
+  #suggestionsList { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .item { background: #252525; padding: 8px; border-radius: 4px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  .item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #eee; }
+  .item-actions { display: flex; gap: 5px; margin-top: 4px; }
+  .btn-small { flex: 1; padding: 4px; font-size: 11px; border: none; border-radius: 3px; cursor: pointer; background: #333; color: white; }
+  .btn-delete { background: #7a1c1c; flex: 0 0 24px; }
+  .empty { font-size: 12px; color: #666; text-align: center; padding: 10px 0; }
+</style>
+</head>
+<body>
+  <button id="startBtn" class="primary">Захватить этот плеер</button>
+  <div class="hint">Горячая клавиша: <b>Alt + Shift + V</b>. Если картинку снять нельзя, ссылка уйдёт через сервер сама</div>
+
+  <hr>
+  <h4>Захват:</h4>
+  <label class="cfg" for="capRes">Разрешение</label>
+  <select id="capRes" class="cfg">
+    <option value="854x480">480p</option>
+    <option value="1280x720" selected>720p</option>
+    <option value="1920x1080">1080p</option>
+    <option value="2560x1440">1440p</option>
+  </select>
+  <label class="cfg" for="capBitrate">Битрейт видео, Мбит/с</label>
+  <input id="capBitrate" type="number" min="0.3" max="20" step="0.1" value="2">
+  <label class="cfg" for="capFps">Кадры в секунду</label>
+  <input id="capFps" type="number" min="5" max="60" step="1" value="30">
+  <label class="check"><input id="capAutoFps" type="checkbox" checked> Определять FPS автоматически</label>
+  <div class="hint">Если автоматически не вышло, берётся число выше</div>
+
+  <hr>
+  <h4>Ссылка на видео:</h4>
+  <div id="foundUrl">Ищем ссылку на вкладке...</div>
+  <input id="directUrl" placeholder="m3u8 или mp4, если ссылка не нашлась">
+  <button id="relayBtn" class="relay">Транслировать через сервер</button>
+  <div class="hint">Зрители смотрят через ваш сервер, даже если сайт им недоступен</div>
+
+  <hr>
+  <h4>🖥 Сервер:</h4>
+  <input id="serverUrl" value="http://localhost:5000">
+  <button id="saveServer">Сохранить адрес</button>
+  <div class="hint">Друзьям открывать этот же адрес вместо localhost</div>
+
+  <hr>
+  <h4>💡 Предложения от зрителей:</h4>
+  <div id="suggestionsList"><div class="empty">Загрузка...</div></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
